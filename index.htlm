@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador RJ45 - T568B</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; text-align: center; }
+  h1 { margin: 0 0 6px; }
+  p.sub { margin: 0 0 20px; color: #94a3b8; }
+  .panel { max-width: 760px; margin: 0 auto 20px; background: #1e293b; border-radius: 14px; padding: 18px; }
+  h2 { margin: 0 0 12px; font-size: 18px; }
+  .conector { display: flex; justify-content: center; gap: 6px; background: #334155; padding: 14px 10px; border-radius: 10px; border: 3px solid #64748b; }
+  .slot { width: 62px; min-height: 120px; background: #0f172a; border: 2px dashed #64748b; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 6px 2px; cursor: pointer; }
+  .slot .pin { font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+  .slot.ok { border: 2px solid #22c55e; background: #14532d33; }
+  .slot.mal { border: 2px solid #ef4444; background: #7f1d1d33; }
+  .bandeja { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; min-height: 130px; }
+  .cable { width: 52px; height: 90px; border-radius: 8px; border: 2px solid #0f172a; cursor: grab; position: relative; font-size: 10px; color: #000; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; user-select: none; }
+  .cable.sel { outline: 4px solid #facc15; }
+  .slot .cable { width: 48px; height: 80px; }
+  .c-bn { background: repeating-linear-gradient(45deg,#fff 0 8px,#f97316 8px 16px); }
+  .c-n  { background: #f97316; }
+  .c-bv { background: repeating-linear-gradient(45deg,#fff 0 8px,#22c55e 8px 16px); }
+  .c-a  { background: #2563eb; color: #fff; }
+  .c-ba { background: repeating-linear-gradient(45deg,#fff 0 8px,#2563eb 8px 16px); }
+  .c-v  { background: #22c55e; }
+  .c-bm { background: repeating-linear-gradient(45deg,#fff 0 8px,#92400e 8px 16px); }
+  .c-m  { background: #92400e; color: #fff; }
+  button { background: #3b82f6; color: #fff; border: 0; padding: 12px 18px; margin: 6px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  button.sec { background: #475569; }
+  #msg { font-size: 18px; min-height: 28px; margin-top: 10px; font-weight: bold; }
+  .ayuda { margin-top: 12px; color: #fde68a; min-height: 22px; }
+  @media (max-width: 600px) { .slot { width: 38px; } .slot .cable { width: 32px; } }
+</style>
+</head>
+<body>
+<h1>Simulador de cable RJ45</h1>
+<p class="sub">Norma T568B - Ubicá cada cable en su posición</p>
+
+<div class="panel">
+  <h2>Conector RJ45 (pines 1 a 8, de izquierda a derecha)</h2>
+  <div class="conector" id="conector"></div>
+</div>
+
+<div class="panel">
+  <h2>Bandeja de cables</h2>
+  <div class="bandeja" id="bandeja"></div>
+</div>
+
+<button id="btnVerificar">Verificar</button>
+<button id="btnAyuda" class="sec">Ayuda</button>
+<button id="btnReiniciar" class="sec">Reiniciar</button>
+<div id="msg"></div>
+<div class="ayuda" id="ayuda"></div>
+
+<script>
+const ORDEN = [
+  { id: 'bn', nombre: 'Blanco/Naranja', clase: 'c-bn' },
+  { id: 'n',  nombre: 'Naranja',        clase: 'c-n'  },
+  { id: 'bv', nombre: 'Blanco/Verde',   clase: 'c-bv' },
+  { id: 'a',  nombre: 'Azul',           clase: 'c-a'  },
+  { id: 'ba', nombre: 'Blanco/Azul',    clase: 'c-ba' },
+  { id: 'v',  nombre: 'Verde',          clase: 'c-v'  },
+  { id: 'bm', nombre: 'Blanco/Marrón',  clase: 'c-bm' },
+  { id: 'm',  nombre: 'Marrón',         clase: 'c-m'  }
+];
+
+let posiciones = new Array(8).fill(null); // id del cable en cada pin
+let seleccionado = null;
+
+const conector = document.getElementById('conector');
+const bandeja = document.getElementById('bandeja');
+const msg = document.getElementById('msg');
+const ayuda = document.getElementById('ayuda');
+
+function mezclar(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function crearCable(c) {
+  const d = document.createElement('div');
+  d.className = 'cable ' + c.clase + (seleccionado === c.id ? ' sel' : '');
+  d.draggable = true;
+  d.dataset.id = c.id;
+  d.title = c.nombre;
+  d.textContent = c.nombre.split('/').join(' ');
+  d.addEventListener('click', (e) => { e.stopPropagation(); clickCable(c.id); });
+  d.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', c.id); });
+  return d;
+}
+
+function clickCable(id) {
+  const pin = posiciones.indexOf(id);
+  if (pin !== -1) { posiciones[pin] = null; seleccionado = null; }
+  else { seleccionado = (seleccionado === id) ? null : id; }
+  dibujar();
+}
+
+function colocar(pin, id) {
+  const previo = posiciones.indexOf(id);
+  if (previo !== -1) posiciones[previo] = null;
+  posiciones[pin] = id; // si había otro cable, vuelve a la bandeja solo
+  seleccionado = null;
+  msg.textContent = '';
+  dibujar();
+}
+
+let ordenBandeja = mezclar(ORDEN.map(c => c.id));
+
+function dibujar() {
+  conector.innerHTML = '';
+  bandeja.innerHTML = '';
+  for (let i = 0; i < 8; i++) {
+    const s = document.createElement('div');
+    s.className = 'slot';
+    s.dataset.pin = i;
+    s.innerHTML = '<div class="pin">Pin ' + (i + 1) + '</div>';
+    if (posiciones[i]) {
+      const c = ORDEN.find(x => x.id === posiciones[i]);
+      s.appendChild(crearCable(c));
+    }
+    s.addEventListener('click', () => { if (seleccionado) colocar(i, seleccionado); });
+    s.addEventListener('dragover', (e) => e.preventDefault());
+    s.addEventListener('drop', (e) => { e.preventDefault(); colocar(i, e.dataTransfer.getData('text/plain')); });
+    conector.appendChild(s);
+  }
+  ordenBandeja.forEach(id => {
+    if (!posiciones.includes(id)) bandeja.appendChild(crearCable(ORDEN.find(x => x.id === id)));
+  });
+}
+
+document.getElementById('btnVerificar').addEventListener('click', () => {
+  const slots = conector.querySelectorAll('.slot');
+  let bien = 0, vacios = 0;
+  slots.forEach((s, i) => {
+    s.classList.remove('ok', 'mal');
+    if (!posiciones[i]) { vacios++; return; }
+    if (posiciones[i] === ORDEN[i].id) { s.classList.add('ok'); bien++; }
+    else s.classList.add('mal');
+  });
+  if (bien === 8) msg.textContent = '¡Perfecto! Cable T568B correcto. Ya podés crimpear.';
+  else if (vacios > 0) msg.textContent = 'Te faltan ' + vacios + ' cable(s) por colocar. Correctos hasta ahora: ' + bien + ' de 8.';
+  else msg.textContent = 'Hay ' + (8 - bien) + ' cable(s) mal ubicados. Revisá los que están en rojo.';
+});
+
+document.getElementById('btnAyuda').addEventListener('click', () => {
+  ayuda.textContent = 'Orden T568B: ' + ORDEN.map((c, i) => (i + 1) + ' ' + c.nombre).join(' - ');
+  setTimeout(() => { ayuda.textContent = ''; }, 6000);
+});
+
+document.getElementById('btnReiniciar').addEventListener('click', () => {
+  posiciones = new Array(8).fill(null);
+  seleccionado = null;
+  ordenBandeja = mezclar(ORDEN.map(c => c.id));
+  msg.textContent = '';
+  dibujar();
+});
+
+dibujar();
+</script>
+</body>
+</html>
